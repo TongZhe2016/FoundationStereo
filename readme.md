@@ -54,22 +54,44 @@ conda activate foundation_stereo
 
 
 # Run demo
+
+FoundationStereo now supports both standard pinhole cameras and panoramic (equirectangular projection) cameras. You can specify the camera type using the `--camera_type` parameter:
+
+## Pinhole Camera (Standard Perspective)
+For standard stereo camera setups with perspective projection:
+
+```bash
+python scripts/run_demo.py --camera_type pinhole --left_file ./assets/left.png --right_file ./assets/right.png --ckpt_dir ./pretrained_models/model_best_bp2.pth
 ```
-python scripts/run_demo.py --left_file ./assets/left.png --right_file ./assets/right.png --ckpt_dir ./pretrained_models/model_best_bp2.pth --out_dir ./test_outputs/
+
+## Panorama Camera (Equirectangular Projection)
+For 360° panoramic stereo images with equirectangular projection:
+
+```bash
+python scripts/run_demo.py --camera_type panorama --left_file ./assets/blender/up_erp.png --right_file ./assets/blender/down_erp.png --ckpt_dir ./pretrained_models/model_best_bp2.pth
 ```
-You can see output point cloud.
+
+The output will be saved in a directory with the camera type and timestamp, e.g., `./test_outputs/pinhole_2025-04-11_22-10-35/` or `./test_outputs/panorama_2025-04-11_22-10-35/`.
+
+You can see the output point cloud in the visualization window that appears after processing.
 
 <p align="center">
   <img src="./teaser/output.jpg" width="700"/>
 </p>
 
-Tips:
+## Camera Intrinsics
+- **Pinhole Camera**: The intrinsic file should contain the camera matrix (K) in the first line (flattened 1x9 matrix) and the baseline in meters in the second line.
+- **Panorama Camera**: The intrinsic file is simpler, with the first line is not used and the second line containing the baseline in meters.
+
+Example intrinsic files are provided in `./assets/K.txt` (pinhole) and `./assets/blender/K.txt` (panorama).
+
+## Tips:
 - The input left and right images should be **rectified and undistorted**, which means there should not be fisheye kind of lens distortion and the epipolar lines are horizontal between the left/right images. If you obtain images from stereo cameras such as Zed, they usually have [handled this](https://github.com/stereolabs/zed-sdk/blob/3472a79fc635a9cee048e9c3e960cc48348415f0/recording/export/svo/python/svo_export.py#L124) for you.
 - Do not swap left and right image. The left image should really be obtained from the left-side camera (objects will appear righter in the image).
-- We recommend to use PNG files with no lossy compression
+- For panorama cameras, the "left" and "right" images typically correspond to "up" and "down" views in an equirectangular projection.
+- We recommend to use PNG files with no lossy compression.
 - Our method works best on stereo RGB images. However, we have also tested it on monochrome or IR stereo images (e.g. from RealSense D4XX series) and it works well too.
 - For all options and instructions, check by `python scripts/run_demo.py --help`
-- To get point cloud for your own data, you need to specify the intrinsics. In the intrinsic file in args, 1st line is the flattened 1x9 intrinsic matrix, 2nd line is the baseline (distance) between the left and right camera, unit in meters.
 - For high-resolution image (>1000px), you can run with `--hiera 1` to enable hierarchical inference for better performance.
 - For faster inference, you can reduce the input image resolution by e.g. `--scale 0.5`, and reduce refine iterations by e.g. `--valid_iters 16`.
 
