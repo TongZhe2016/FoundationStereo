@@ -8,6 +8,7 @@
 
 
 import os, sys
+import shutil
 import numpy as np
 import datetime
 import argparse
@@ -100,6 +101,12 @@ if __name__=="__main__":
   set_seed(0)
   torch.autograd.set_grad_enabled(False)
   os.makedirs(args.out_dir, exist_ok=True)
+  
+  # 复制输入文件到输出文件夹，以便后期回顾
+  shutil.copy(args.left_file, os.path.join(args.out_dir, 'left.png'))
+  shutil.copy(args.right_file, os.path.join(args.out_dir, 'right.png'))
+  shutil.copy(args.intrinsic_file, os.path.join(args.out_dir, 'K.txt'))
+  logging.info(f"Copied input files to {args.out_dir} for future reference")
 
   ckpt_dir = args.ckpt_dir
   cfg = OmegaConf.load(f'{os.path.dirname(ckpt_dir)}/cfg.yaml')
