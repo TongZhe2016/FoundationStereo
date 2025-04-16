@@ -4,4 +4,12 @@ output/*
 weight/
 __pycache__/
 DATA/*
-test_outputs*/
+test_outputs/*
+OmniHouse/
+OmniThing/
+OmniUrbanCloudy
+OmniUrbanSunny/
+OmniUrbanSunset/
+.vscode/
+.DS_Store
+trained_models/
