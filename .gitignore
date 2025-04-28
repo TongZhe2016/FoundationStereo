@@ -16,3 +16,5 @@ MATLAB_REF/
 .vscode/
 .DS_Store
 trained_models/
+data/
+erp_output/
