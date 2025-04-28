@@ -18,3 +18,4 @@ MATLAB_REF/
 trained_models/
 data/
 erp_output/
+logs/
