@@ -100,8 +100,8 @@ def parse_args():
                         help='包含pinhole相机数据的目录（默认：data）')
     parser.add_argument('--output_dir', type=str, default='erp_output',
                         help='保存ERP数据的目录（默认：erp_output）')
-    parser.add_argument('--params_output', type=str, default='estimated_K.txt',
-                        help='保存估计的相机参数的文件路径（默认：estimated_K.txt）')
+    parser.add_argument('--params_output', type=str, default=None,
+                        help='保存估计的相机参数的文件路径（默认：输出到erp_output文件夹下）')
     parser.add_argument('--num_pairs', type=int, default=5,
                         help='用于估计相机参数的图像对数量（默认：5）')
     parser.add_argument('--num_samples', type=int, default=None,
@@ -117,7 +117,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def estimate_camera_parameters(data_dir, params_output, num_pairs=5, logger=None):
+def estimate_camera_parameters(data_dir, params_output, num_pairs=20, logger=None):
     """
     估计相机内参和baseline
     
@@ -214,9 +214,22 @@ def estimate_camera_parameters(data_dir, params_output, num_pairs=5, logger=None
         logger.info(f"处理图像对 {i+1}/{len(right_rgb_files)}: {os.path.basename(left_rgb_file)}")
         
         try:
+            # 获取原始图像尺寸
+            original_left_img = cv2.imread(left_rgb_file)
+            original_height, original_width = original_left_img.shape[:2]
+            logger.info(f"原始图像尺寸: {original_width}x{original_height}")
+            
             # 加载和预处理图像
             image_paths = [left_rgb_file, right_rgb_file]
+            # 注意：load_and_preprocess_images函数默认mode为'crop'，会将图像等比例缩放到宽为518。
+            # 在后续处理内参外参的时候需要注意图像的实际尺寸，将内参外参还原到原始尺寸。
             images = load_and_preprocess_images(image_paths).to(device)
+            logger.info(f"处理后图像形状: {images.shape}")
+            
+            # 计算缩放比例（原始宽度与处理后宽度的比值）
+            processed_width = images.shape[-1]
+            scale_factor = original_width / processed_width
+            logger.info(f"图像缩放比例: {scale_factor}")
             
             # 使用模型估计相机参数
             with torch.no_grad():
@@ -231,8 +244,8 @@ def estimate_camera_parameters(data_dir, params_output, num_pairs=5, logger=None
             # 提取内参矩阵（使用左相机的内参）
             left_intrinsic = intrinsic[0, 0]
             
-            # 估计baseline
-            baseline = estimate_baseline(extrinsic)
+            # 估计baseline，同时传递内参矩阵和缩放比例
+            baseline = estimate_baseline(extrinsic, left_intrinsic, scale_factor)
             
             # 验证估计的参数
             is_valid = validate_camera_params(left_intrinsic, baseline, images.shape[-2:])
@@ -265,19 +278,34 @@ def estimate_camera_parameters(data_dir, params_output, num_pairs=5, logger=None
     except Exception as e:
         raise RuntimeError(f"保存相机参数失败: {e}")
     
-    # 创建相机参数字典
-    fx = avg_intrinsic[0, 0].item()
-    fy = avg_intrinsic[1, 1].item()
-    cx = avg_intrinsic[0, 2].item()
-    cy = avg_intrinsic[1, 2].item()
+    # 获取原始图像尺寸（使用第一张图像）
+    first_left_img = cv2.imread(left_rgb_files[0])
+    original_height, original_width = first_left_img.shape[:2]
+    logger.info(f"原始图像尺寸: {original_width}x{original_height}")
+    
+    # 计算缩放比例（假设所有图像都被缩放到相同的宽度518）
+    processed_width = 518  # load_and_preprocess_images函数默认将宽度调整为518
+    scale_factor = original_width / processed_width
+    logger.info(f"图像缩放比例: {scale_factor}")
+    
+    # 创建相机参数字典（将内参还原到原始图像尺寸）
+    fx = avg_intrinsic[0, 0].item() * scale_factor
+    fy = avg_intrinsic[1, 1].item() * scale_factor
+    cx = avg_intrinsic[0, 2].item() * scale_factor
+    cy = avg_intrinsic[1, 2].item() * scale_factor
     
     cam_params = {
         'fx': fx,
         'fy': fy,
         'cx': cx,
         'cy': cy,
-        'baseline': avg_baseline
+        'baseline': avg_baseline  # baseline已经在estimate_baseline函数中调整过
     }
+    
+    logger.info(f"相机参数（已还原到原始图像尺寸）:")
+    logger.info(f"焦距: fx={fx}, fy={fy}")
+    logger.info(f"主点: cx={cx}, cy={cy}")
+    logger.info(f"Baseline: {avg_baseline}")
     
     return cam_params
 def convert_to_erp_dataset(data_dir, output_dir, cam_params, num_samples=None, erp_size=(1024, 2048), logger=None):
@@ -587,6 +615,13 @@ def main():
         erp_size = tuple(map(int, args.erp_size.split(',')))
         if len(erp_size) != 2:
             raise ValueError(f"ERP图像大小格式不正确: {args.erp_size}，应为'高度,宽度'")
+        
+        # 创建输出目录
+        os.makedirs(args.output_dir, exist_ok=True)
+        
+        # 设置相机参数输出路径
+        if args.params_output is None:
+            args.params_output = os.path.join(args.output_dir, 'estimated_K.txt')
         
         # 步骤1：估计相机内参和baseline
         if args.skip_estimation and os.path.exists(args.params_output):

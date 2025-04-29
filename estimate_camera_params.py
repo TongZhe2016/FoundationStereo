@@ -164,6 +164,7 @@ def estimate_baseline(extrinsics, intrinsic=None, scale_factor=None):
             cy = intrinsic[1, 2].item()
             
             # 如果提供了缩放比例，则将内参还原到原始图像尺寸
+            # 注意！estimate_baseline函数只返回baseline，不返回内参矩阵。此处仅供debug显示。
             if scale_factor is not None:
                 fx = fx * scale_factor
                 fy = fy * scale_factor
