@@ -213,27 +213,44 @@ def convert_to_erp(img, depth, mask_valid_depth, cam_params, erp_size=(1024, 204
     # ERP参数
     erp_h, erp_w = erp_size
     
-    # 将整个图像转换为ERP
-    # 使用cam_to_erp_patch_fast函数，将整个图像作为一个patch处理
-    # 中心点设置为(0, 0)，即赤道和本初子午线的交点
+    # 创建多个不同phi值的ERP图像，以便在两极区域有更多的内容
+    # 我们将生成5个不同phi值的图像：赤道、北半球中纬度、南半球中纬度、北极附近和南极附近
+    phi_values = [0, math.pi/6, -math.pi/6, math.pi/3, -math.pi/3]  # 0°, 30°, -30°, 60°, -60°
     theta = 0  # 经度（本初子午线）
-    phi = 0    # 纬度（赤道）
     
-    # 转换为ERP
-    erp_img, erp_depth, erp_mask_valid, mask_active, lat_grid, lon_grid = cam_to_erp_patch_fast(
-        img=img,
-        depth=depth,
-        mask_valid_depth=mask_valid_depth,
-        theta=theta,
-        phi=phi,
-        patch_h=erp_h,
-        patch_w=erp_w,
-        erp_h=erp_h,
-        erp_w=erp_w,
-        cam_params=cam_params_for_erp
-    )
+    # 初始化合并后的ERP图像、深度图和掩码
+    combined_erp_img = np.zeros((erp_h, erp_w, 3), dtype=np.float32)
+    combined_erp_depth = np.zeros((erp_h, erp_w), dtype=np.float32)
+    combined_erp_mask_valid = np.zeros((erp_h, erp_w), dtype=np.float32)
+    combined_mask_active = np.zeros((erp_h, erp_w), dtype=np.float32)
     
-    return erp_img, erp_depth, erp_mask_valid, mask_active
+    # 为每个phi值生成ERP图像，并将它们合并
+    for phi in phi_values:
+        # 转换为ERP
+        erp_img, erp_depth, erp_mask_valid, mask_active, lat_grid, lon_grid = cam_to_erp_patch_fast(
+            img=img,
+            depth=depth,
+            mask_valid_depth=mask_valid_depth,
+            theta=theta,
+            phi=phi,
+            patch_h=erp_h,
+            patch_w=erp_w,
+            erp_h=erp_h,
+            erp_w=erp_w,
+            cam_params=cam_params_for_erp
+        )
+        
+        # 将当前ERP图像合并到combined_erp_img中
+        # 只在mask_active为1的区域进行合并
+        mask_active_3d = np.repeat(mask_active[:, :, np.newaxis], 3, axis=2)
+        combined_erp_img = np.where(mask_active_3d > 0, erp_img, combined_erp_img)
+        
+        # 合并深度图和掩码
+        combined_erp_depth = np.where(mask_active > 0, erp_depth, combined_erp_depth)
+        combined_erp_mask_valid = np.where(mask_active > 0, erp_mask_valid, combined_erp_mask_valid)
+        combined_mask_active = np.maximum(combined_mask_active, mask_active)
+    
+    return combined_erp_img, combined_erp_depth, combined_erp_mask_valid, combined_mask_active
 
 
 def save_erp_outputs(output_dir, name, erp_img, erp_depth, erp_mask_valid, side):

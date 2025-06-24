@@ -17,5 +17,5 @@ MATLAB_REF/
 .DS_Store
 trained_models/
 data/
-erp_output/
+erp_output*/
 logs/
