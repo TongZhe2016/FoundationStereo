@@ -1,0 +1,105 @@
+{
+  "model": {
+    "max_disp": 192,
+    "feature_type": "dinov2",
+    "feature_channels": [384, 384, 384, 384],
+    "correlation_implementation": "alt",
+    "corr_radius": 4,
+    "corr_levels": 4,
+    "n_downsample": 2,
+    "slow_fast_gru": false,
+    "n_gru_layers": 3,
+    "hidden_dims": [128, 128, 128],
+    "mixed_precision": false,
+    "test_mode": false
+  },
+  "data": {
+    "datasets": [
+      {
+        "name": "foundation_stereo_train",
+        "path": "./data",
+        "weight": 1.0,
+        "label_type": "stereo",
+        "image_augmentation": ["jittering"],
+        "aspect_ratio_range": [0.5, 2.0]
+      }
+    ],
+    "image_sizes": [[512, 384], [640, 480], [768, 576]],
+    "max_disparity": 192,
+    "image_augmentation": ["jittering"],
+    "stereo_augmentation": true
+  },
+  "loss": {
+    "stereo": {
+      "disparity_l1": {
+        "function": "disparity_l1_loss",
+        "weight": 1.0,
+        "params": {
+          "max_disparity": 192.0
+        }
+      },
+      "disparity_smooth_l1": {
+        "function": "disparity_smooth_l1_loss",
+        "weight": 0.5,
+        "params": {
+          "beta": 1.0,
+          "max_disparity": 192.0
+        }
+      },
+      "multi_scale": {
+        "function": "multi_scale_loss",
+        "weight": 0.3,
+        "params": {
+          "weights": [0.5, 0.7, 1.0],
+          "loss_type": "smooth_l1",
+          "beta": 1.0,
+          "max_disparity": 192.0
+        }
+      }
+    },
+    "invalid": {
+      "dummy": {
+        "function": "disparity_l1_loss",
+        "weight": 0.0,
+        "params": {
+          "max_disparity": 192.0
+        }
+      }
+    }
+  },
+  "optimizer": {
+    "type": "AdamW",
+    "params": [
+      {
+        "params": {
+          "include": ["*"],
+          "exclude": []
+        },
+        "lr": 1e-4,
+        "weight_decay": 1e-4,
+        "betas": [0.9, 0.999],
+        "eps": 1e-8
+      }
+    ]
+  },
+  "lr_scheduler": {
+    "type": "SequentialLR",
+    "params": {
+      "schedulers": [
+        {
+          "type": "LambdaLR",
+          "params": {
+            "lr_lambda": "min(epoch / 1000, 1.0)"
+          }
+        },
+        {
+          "type": "LambdaLR",
+          "params": {
+            "lr_lambda": "max(0.1, 0.5 ** ((epoch - 1000) / 20000))"
+          }
+        }
+      ],
+      "milestones": [1000]
+    }
+  }
+}
