@@ -6,7 +6,7 @@ from Utils import *
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument("--dataset_path", type=str, default="./DATA/sample/manipulation_v5_realistic_kitchen_2500_1/dataset/data/")
+  parser.add_argument("--dataset_path", type=str, default="./data/")
   args = parser.parse_args()
 
   root = args.dataset_path
