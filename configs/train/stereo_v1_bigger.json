@@ -25,7 +25,7 @@
         "aspect_ratio_range": [0.5, 2.0]
       }
     ],
-    "image_sizes": [[256, 192], [320, 240], [384, 288]],
+    "image_sizes": [[512, 384], [640, 480], [768, 576]],
     "max_disparity": 192,
     "image_augmentation": ["jittering"],
     "stereo_augmentation": true

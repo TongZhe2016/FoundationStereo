@@ -26,4 +26,7 @@ nodejs
 xformers==0.0.28.post1
 huggingface-hub
 mlflow
-#run this: pip install git+https://github.com/microsoft/MoGe.git
+dinov2
+# run this: 
+# pip install git+https://github.com/microsoft/MoGe.git
+# pip install git+https://github.com/facebookresearch/dinov2.git

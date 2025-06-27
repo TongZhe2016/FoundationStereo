@@ -41,6 +41,28 @@ from core.utils.utils import InputPadder
 from Utils import vis_disparity, depth_uint8_decoding
 
 
+class SimpleNamespace:
+    """Simple namespace class to convert dict to object with attributes"""
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+    
+    def get(self, key, default=None):
+        """Support dict-like get method for compatibility"""
+        return getattr(self, key, default)
+    
+    def __getitem__(self, key):
+        """Support dict-like access with square brackets"""
+        return getattr(self, key)
+    
+    def __setitem__(self, key, value):
+        """Support dict-like assignment with square brackets"""
+        setattr(self, key, value)
+    
+    def __contains__(self, key):
+        """Support 'in' operator"""
+        return hasattr(self, key)
+
+
 def flatten_nested_dict(d, parent_key='', sep='.'):
     """Flatten nested dictionary"""
     items = []
@@ -140,8 +162,9 @@ def main(
     # Initialize model
     print('Initialize model')
     with accelerator.local_main_process_first():
-        # FoundationStereo expects a config dict, not individual parameters
-        model = FoundationStereo(config['model'])
+        # Convert model config dict to namespace object for FoundationStereo
+        model_args = SimpleNamespace(**config['model'])
+        model = FoundationStereo(model_args)
     count_total_parameters = sum(p.numel() for p in model.parameters())
     print(f'Total parameters: {count_total_parameters}')
 
