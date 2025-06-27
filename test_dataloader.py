@@ -28,8 +28,52 @@ sys.path.append(code_dir)
 # Import the module to test
 from train.dataloader import StereoTrainDataLoaderPipeline, stereo_consistent_crop, stereo_consistent_resize
 
+# Try to import MoGe model (optional dependency)
+try:
+    from moge.model.v2 import MoGeModel
+    MOGE_AVAILABLE = True
+    print("MoGe model available for intrinsics estimation")
+except ImportError:
+    MOGE_AVAILABLE = False
+    print("MoGe model not available. Will use default intrinsics.")
 
-def save_stereo_data(batch, output_dir="test_outputs", save_pointcloud=True):
+
+def estimate_intrinsics_with_moge(image_rgb, device="cuda"):
+    """
+    使用MoGe模型估计图像的相机内参
+    
+    Args:
+        image_rgb: RGB图像 (H, W, 3) numpy array, 值范围[0, 255]
+        device: 计算设备
+        
+    Returns:
+        intrinsics: (3, 3) 相机内参矩阵，如果MoGe不可用则返回None
+    """
+    if not MOGE_AVAILABLE:
+        return None
+    
+    try:
+        # 加载MoGe模型
+        model = MoGeModel.from_pretrained("Ruicheng/moge-2-vitl-normal").to(device)
+        
+        # 准备输入图像
+        input_image = torch.tensor(image_rgb / 255.0, dtype=torch.float32, device=device).permute(2, 0, 1)
+        
+        # 推理
+        with torch.no_grad():
+            output = model.infer(input_image)
+        
+        # 提取内参
+        intrinsics = output["intrinsics"].cpu().numpy()
+        
+        return intrinsics
+        
+    except Exception as e:
+        print(f"MoGe内参估计失败: {e}")
+        return None
+
+
+def save_stereo_data(batch, output_dir="test_outputs", save_pointcloud=True, use_moge_intrinsics=False):
     """
     保存双目图像、深度图和点云数据
     
@@ -37,6 +81,7 @@ def save_stereo_data(batch, output_dir="test_outputs", save_pointcloud=True):
         batch: 从dataloader获取的batch数据
         output_dir: 输出目录
         save_pointcloud: 是否保存点云数据
+        use_moge_intrinsics: 是否使用MoGe模型估计内参
     """
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
@@ -89,10 +134,32 @@ def save_stereo_data(batch, output_dir="test_outputs", save_pointcloud=True):
         # 生成并保存点云
         if save_pointcloud:
             try:
-                # 假设相机内参 (这里使用典型值，实际应用中需要真实的相机参数)
                 height, width = disparity.shape
-                focal_length = width * 0.8  # 假设焦距
-                cx, cy = width / 2, height / 2  # 假设主点在图像中心
+                
+                # 尝试使用MoGe估计内参
+                if use_moge_intrinsics and MOGE_AVAILABLE:
+                    print(f"使用MoGe估计样本 {i+1} 的相机内参...")
+                    intrinsics = estimate_intrinsics_with_moge(left_img_uint8)
+                    
+                    if intrinsics is not None:
+                        # 将归一化的内参转换为像素坐标
+                        fx = intrinsics[0, 0] * width
+                        fy = intrinsics[1, 1] * height
+                        cx = intrinsics[0, 2] * width
+                        cy = intrinsics[1, 2] * height
+                        focal_length = (fx + fy) / 2  # 使用平均焦距
+                        print(f"MoGe估计的内参: fx={fx:.2f}, fy={fy:.2f}, cx={cx:.2f}, cy={cy:.2f}")
+                    else:
+                        # 回退到默认值
+                        focal_length = width * 0.8
+                        cx, cy = width / 2, height / 2
+                        print("MoGe估计失败，使用默认内参")
+                else:
+                    # 使用默认相机内参
+                    focal_length = width * 0.8  # 假设焦距
+                    cx, cy = width / 2, height / 2  # 假设主点在图像中心
+                    print(f"使用默认内参: 焦距={focal_length:.2f}, 主点=({cx:.2f}, {cy:.2f})")
+                
                 baseline = 0.1  # 假设基线距离为10cm
                 
                 # 生成像素坐标网格
@@ -142,7 +209,14 @@ def save_stereo_data(batch, output_dir="test_outputs", save_pointcloud=True):
             'image_shape': left_img.shape,
             'disparity_shape': disparity.shape,
             'valid_pixels': int(disparity_mask.sum()),
-            'disparity_range': [float(disparity[disparity_mask].min()), float(disparity[disparity_mask].max())] if disparity_mask.any() else [0, 0]
+            'disparity_range': [float(disparity[disparity_mask].min()), float(disparity[disparity_mask].max())] if disparity_mask.any() else [0, 0],
+            'camera_intrinsics': {
+                'focal_length': float(focal_length) if 'focal_length' in locals() else None,
+                'cx': float(cx) if 'cx' in locals() else None,
+                'cy': float(cy) if 'cy' in locals() else None,
+                'baseline': float(baseline) if 'baseline' in locals() else None,
+                'estimated_by_moge': use_moge_intrinsics and MOGE_AVAILABLE and 'intrinsics' in locals() and intrinsics is not None
+            }
         }
         
         with open(sample_dir / "metadata.json", 'w') as f:
@@ -507,14 +581,14 @@ def manual_test_with_real_data():
         
         # 保存双目图像、深度图和点云数据
         print("\n保存测试数据...")
-        save_stereo_data(batch, output_dir="test_outputs/dataloader_test", save_pointcloud=True)
+        save_stereo_data(batch, output_dir="test_outputs/dataloader_test", save_pointcloud=True, use_moge_intrinsics=use_moge_intrinsics)
         print("数据保存完成!")
         
     except Exception as e:
         print(f"Manual test failed: {e}")
 
 
-def test_and_save_data(disable_augmentation=False):
+def test_and_save_data(disable_augmentation=False, use_moge_intrinsics=False):
     """专门用于测试并保存数据的函数"""
     print("测试数据加载器并保存双目图像、深度图和点云...")
     if disable_augmentation:
@@ -609,7 +683,7 @@ def test_and_save_data(disable_augmentation=False):
     
     # 保存数据
     print("\n保存双目图像、深度图和点云数据...")
-    save_stereo_data(batch, output_dir="test_outputs/stereo_data_samples", save_pointcloud=True)
+    save_stereo_data(batch, output_dir="test_outputs/stereo_data_samples", save_pointcloud=True, use_moge_intrinsics=use_moge_intrinsics)
     print("所有数据保存完成!")
 
 
@@ -620,13 +694,14 @@ if __name__ == "__main__":
     parser.add_argument("--manual", action="store_true", help="Run manual test with real data")
     parser.add_argument("--save-data", action="store_true", help="Test and save stereo images, depth maps and point clouds")
     parser.add_argument("--no-augmentation", action="store_true", help="Disable stereo augmentation to avoid left-right image swapping")
+    parser.add_argument("--use-moge", action="store_true", help="Use MoGe model to estimate camera intrinsics")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     args = parser.parse_args()
     
     if args.manual:
         manual_test_with_real_data()
     elif args.save_data:
-        test_and_save_data(disable_augmentation=args.no_augmentation)
+        test_and_save_data(disable_augmentation=args.no_augmentation, use_moge_intrinsics=args.use_moge)
     else:
         # Run unit tests
         if args.verbose:
