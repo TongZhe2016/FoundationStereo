@@ -236,23 +236,74 @@ class StereoTrainDataLoaderPipeline:
             # Apply same color transformation to both images
             brightness_factor = rng.uniform(0.8, 1.2)
             contrast_factor = rng.uniform(0.8, 1.2)
-            saturation_factor = rng.uniform(0.8, 1.2)
+            # Enhanced saturation range: 0 (grayscale) to 1.4
+            saturation_factor = rng.uniform(0.0, 1.4)
             hue_factor = rng.uniform(-0.05, 0.05)
             gamma_factor = rng.uniform(0.8, 1.2)
             
-            for img in [left_image, right_image]:
-                img_tensor = torch.from_numpy(img).permute(2, 0, 1)
-                img_tensor = TF.adjust_brightness(img_tensor, brightness_factor)
-                img_tensor = TF.adjust_contrast(img_tensor, contrast_factor)
-                img_tensor = TF.adjust_saturation(img_tensor, saturation_factor)
-                img_tensor = TF.adjust_hue(img_tensor, hue_factor)
-                img_tensor = TF.adjust_gamma(img_tensor, gamma_factor)
-                if img is left_image:
-                    left_image = img_tensor.permute(1, 2, 0).numpy()
-                else:
-                    right_image = img_tensor.permute(1, 2, 0).numpy()
+            # Apply color augmentation to left image
+            left_img_tensor = torch.from_numpy(left_image).permute(2, 0, 1)
+            left_img_tensor = TF.adjust_brightness(left_img_tensor, brightness_factor)
+            left_img_tensor = TF.adjust_contrast(left_img_tensor, contrast_factor)
+            left_img_tensor = TF.adjust_saturation(left_img_tensor, saturation_factor)
+            left_img_tensor = TF.adjust_hue(left_img_tensor, hue_factor)
+            left_img_tensor = TF.adjust_gamma(left_img_tensor, gamma_factor)
+            left_image = left_img_tensor.permute(1, 2, 0).numpy()
+            
+            # Apply color augmentation to right image (with potential perturbation)
+            right_img_tensor = torch.from_numpy(right_image).permute(2, 0, 1)
+            right_img_tensor = TF.adjust_brightness(right_img_tensor, brightness_factor)
+            right_img_tensor = TF.adjust_contrast(right_img_tensor, contrast_factor)
+            right_img_tensor = TF.adjust_saturation(right_img_tensor, saturation_factor)
+            right_img_tensor = TF.adjust_hue(right_img_tensor, hue_factor)
+            right_img_tensor = TF.adjust_gamma(right_img_tensor, gamma_factor)
+            right_image = right_img_tensor.permute(1, 2, 0).numpy()
+            
+            # Right image perturbation to simulate imperfect rectification
+            # (as seen in ETH3D and Middlebury datasets)
+            if rng.choice([True, False], p=[0.3, 0.7]):  # 30% chance of perturbation
+                # Small random translation and rotation
+                tx = rng.uniform(-2.0, 2.0)  # horizontal translation in pixels
+                ty = rng.uniform(-1.0, 1.0)  # vertical translation in pixels
+                angle = rng.uniform(-0.5, 0.5)  # rotation in degrees
+                
+                # Create transformation matrix
+                h, w = right_image.shape[:2]
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                M[0, 2] += tx
+                M[1, 2] += ty
+                
+                # Apply transformation
+                right_image = cv2.warpAffine(right_image, M, (w, h),
+                                           flags=cv2.INTER_LINEAR,
+                                           borderMode=cv2.BORDER_REFLECT)
 
-        # 5. Clamp disparity to max range
+        # 5. Disparity stretching augmentation
+        # Apply random stretching factor in range [2.02, 2.04] to simulate different disparity ranges
+        if 'disparity_stretching' in image_augmentation and rng.choice([True, False], p=[0.5, 0.5]):
+            stretch_factor = rng.uniform(2.02, 2.04)
+            
+            # Stretch images horizontally
+            h, w = left_image.shape[:2]
+            new_w = int(w * stretch_factor)
+            
+            # Resize images
+            left_image = cv2.resize(left_image, (new_w, h), interpolation=cv2.INTER_LINEAR)
+            right_image = cv2.resize(right_image, (new_w, h), interpolation=cv2.INTER_LINEAR)
+            
+            # Stretch disparity accordingly
+            disparity = cv2.resize(disparity, (new_w, h), interpolation=cv2.INTER_NEAREST) * stretch_factor
+            disparity_mask = cv2.resize(disparity_mask.astype(np.uint8), (new_w, h), interpolation=cv2.INTER_NEAREST).astype(bool)
+            
+            # Crop back to original size from center
+            start_x = (new_w - w) // 2
+            left_image = left_image[:, start_x:start_x + w]
+            right_image = right_image[:, start_x:start_x + w]
+            disparity = disparity[:, start_x:start_x + w]
+            disparity_mask = disparity_mask[:, start_x:start_x + w]
+
+        # 6. Clamp disparity to max range
         disparity = np.clip(disparity, 0, self.max_disparity)
         
         # Ensure mask is not empty

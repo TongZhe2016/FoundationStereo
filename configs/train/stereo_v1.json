@@ -21,13 +21,13 @@
         "path": "./data",
         "weight": 1.0,
         "label_type": "stereo",
-        "image_augmentation": ["jittering"],
+        "image_augmentation": ["jittering", "flipping", "disparity_stretching"],
         "aspect_ratio_range": [0.5, 2.0]
       }
     ],
     "image_sizes": [[320, 736]],
     "max_disparity": 192,
-    "image_augmentation": ["jittering"],
+    "image_augmentation": ["jittering", "flipping", "disparity_stretching"],
     "stereo_augmentation": true
   },
   "loss": {
