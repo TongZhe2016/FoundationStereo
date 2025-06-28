@@ -25,35 +25,18 @@
         "aspect_ratio_range": [0.5, 2.0]
       }
     ],
-    "image_sizes": [[256, 192], [320, 240], [384, 288]],
+    "image_sizes": [[320, 736]],
     "max_disparity": 192,
     "image_augmentation": ["jittering"],
     "stereo_augmentation": true
   },
   "loss": {
     "stereo": {
-      "disparity_l1": {
-        "function": "disparity_l1_loss",
+      "foundation_stereo": {
+        "function": "foundation_stereo_loss",
         "weight": 1.0,
         "params": {
-          "max_disparity": 192.0
-        }
-      },
-      "disparity_smooth_l1": {
-        "function": "disparity_smooth_l1_loss",
-        "weight": 0.5,
-        "params": {
-          "beta": 1.0,
-          "max_disparity": 192.0
-        }
-      },
-      "multi_scale": {
-        "function": "multi_scale_loss",
-        "weight": 0.3,
-        "params": {
-          "weights": [0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.3, 0.3, 0.5, 1.0],
-          "loss_type": "smooth_l1",
-          "beta": 1.0,
+          "gamma": 0.9,
           "max_disparity": 192.0
         }
       }
@@ -84,23 +67,9 @@
     ]
   },
   "lr_scheduler": {
-    "type": "SequentialLR",
+    "type": "LambdaLR",
     "params": {
-      "schedulers": [
-        {
-          "type": "LambdaLR",
-          "params": {
-            "lr_lambda": "min(epoch / 1000, 1.0)"
-          }
-        },
-        {
-          "type": "LambdaLR",
-          "params": {
-            "lr_lambda": "max(0.1, 0.5 ** ((epoch - 1000) / 20000))"
-          }
-        }
-      ],
-      "milestones": [1000]
+      "lr_lambda": "Piecewise((1.0, epoch < 160000), (0.1, True))"
     }
   }
 }

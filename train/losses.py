@@ -374,3 +374,125 @@ def compute_stereo_metrics(
             metrics[f'd{int(threshold)}_error'] = error_rate
         
         return metrics
+
+
+def foundation_stereo_loss(
+    pred_disparity_initial: torch.Tensor,
+    pred_disparity_pyramid: List[torch.Tensor],
+    gt_disparity: torch.Tensor,
+    mask: torch.Tensor,
+    gamma: float = 0.9,
+    max_disparity: float = 192.0,
+    **kwargs
+) -> Tuple[torch.Tensor, Dict[str, float]]:
+    """
+    FoundationStereo loss function as described in the paper:
+    L = |d₀ - d̄|_smooth + Σ(k=1 to K) γ^(K-k) ||d_k - d̄||₁
+    
+    Args:
+        pred_disparity_initial: Initial disparity prediction d₀ [H, W]
+        pred_disparity_pyramid: List of refined disparities [d₁, d₂, ..., d_K]
+        gt_disparity: Ground truth disparity d̄ [H, W]
+        mask: Valid disparity mask [H, W]
+        gamma: Exponential weight factor (default: 0.9)
+        max_disparity: Maximum disparity value for clamping
+    """
+    # Handle resolution mismatch for initial disparity
+    if pred_disparity_initial.shape != gt_disparity.shape:
+        if pred_disparity_initial.dim() == 2:
+            pred_disparity_initial = pred_disparity_initial.unsqueeze(0).unsqueeze(0)
+        elif pred_disparity_initial.dim() == 3:
+            pred_disparity_initial = pred_disparity_initial.unsqueeze(0)
+        
+        pred_disparity_initial = F.interpolate(
+            pred_disparity_initial,
+            size=gt_disparity.shape[-2:],
+            mode='bilinear',
+            align_corners=False
+        )
+        
+        while pred_disparity_initial.dim() > gt_disparity.dim():
+            pred_disparity_initial = pred_disparity_initial.squeeze(0)
+    
+    # Clamp initial prediction
+    pred_disparity_initial = torch.clamp(pred_disparity_initial, 0, max_disparity)
+    
+    # Compute smooth L1 loss for initial disparity: |d₀ - d̄|_smooth
+    smooth_l1_initial = _smooth_l1_loss(pred_disparity_initial, gt_disparity, beta=1.0)
+    loss_initial = smooth_l1_initial[mask].mean() if mask.sum() > 0 else torch.tensor(0.0, device=pred_disparity_initial.device)
+    
+    # Compute iterative refinement loss: Σ(k=1 to K) γ^(K-k) ||d_k - d̄||₁
+    loss_iterative = torch.tensor(0.0, device=gt_disparity.device)
+    K = len(pred_disparity_pyramid)
+    
+    total_epe = 0.0
+    total_d1_error = 0.0
+    total_d3_error = 0.0
+    
+    for k, pred_disp_k in enumerate(pred_disparity_pyramid):
+        # Handle resolution mismatch
+        if pred_disp_k.shape != gt_disparity.shape:
+            if pred_disp_k.dim() == 2:
+                pred_disp_k = pred_disp_k.unsqueeze(0).unsqueeze(0)
+            elif pred_disp_k.dim() == 3:
+                pred_disp_k = pred_disp_k.unsqueeze(0)
+            
+            pred_disp_k = F.interpolate(
+                pred_disp_k,
+                size=gt_disparity.shape[-2:],
+                mode='bilinear',
+                align_corners=False
+            )
+            
+            while pred_disp_k.dim() > gt_disparity.dim():
+                pred_disp_k = pred_disp_k.squeeze(0)
+        
+        # Clamp prediction
+        pred_disp_k = torch.clamp(pred_disp_k, 0, max_disparity)
+        
+        # Compute weight: γ^(K-k) where k is 1-indexed
+        weight = gamma ** (K - (k + 1))
+        
+        # Compute L1 loss for this iteration
+        diff = torch.abs(pred_disp_k - gt_disparity)
+        loss_k = diff[mask].mean() if mask.sum() > 0 else torch.tensor(0.0, device=pred_disp_k.device)
+        loss_iterative += weight * loss_k
+        
+        # Compute metrics for this iteration
+        with torch.no_grad():
+            if mask.sum() > 0:
+                epe_k = diff[mask].mean().item()
+                d1_error_k = (diff[mask] > 3.0).float().mean().item()
+                d3_error_k = (diff[mask] > 1.0).float().mean().item()
+                
+                total_epe += weight * epe_k
+                total_d1_error += weight * d1_error_k
+                total_d3_error += weight * d3_error_k
+    
+    # Total loss
+    total_loss = loss_initial + loss_iterative
+    
+    # Compute metrics for initial disparity
+    with torch.no_grad():
+        if mask.sum() > 0:
+            diff_initial = torch.abs(pred_disparity_initial - gt_disparity)
+            epe_initial = diff_initial[mask].mean().item()
+            d1_error_initial = (diff_initial[mask] > 3.0).float().mean().item()
+            d3_error_initial = (diff_initial[mask] > 1.0).float().mean().item()
+        else:
+            epe_initial = 0.0
+            d1_error_initial = 0.0
+            d3_error_initial = 0.0
+    
+    misc = {
+        'epe_initial': epe_initial,
+        'd1_error_initial': d1_error_initial,
+        'd3_error_initial': d3_error_initial,
+        'epe_iterative': total_epe,
+        'd1_error_iterative': total_d1_error,
+        'd3_error_iterative': total_d3_error,
+        'loss_initial': loss_initial.item(),
+        'loss_iterative': loss_iterative.item(),
+    }
+    
+    return total_loss, misc

@@ -33,6 +33,7 @@ from train.losses import (
     disparity_smooth_l1_loss,
     disparity_epe_loss,
     multi_scale_loss,
+    foundation_stereo_loss,
     monitoring_stereo,
 )
 from train.utils import build_optimizer, build_lr_scheduler, compute_stereo_metrics
@@ -380,6 +381,8 @@ def main(
                                 loss_dict[k], misc_dict[k] = disparity_epe_loss(pred_disparity[i], gt_disparity[i], gt_mask[i], **v['params'])
                             elif v['function'] == 'multi_scale_loss' and pred_disparity_pyramid is not None:
                                 loss_dict[k], misc_dict[k] = multi_scale_loss(pred_disparity_pyramid, gt_disparity[i], gt_mask[i], **v['params'])
+                            elif v['function'] == 'foundation_stereo_loss' and pred_disparity_pyramid is not None:
+                                loss_dict[k], misc_dict[k] = foundation_stereo_loss(pred_disparity[i], pred_disparity_pyramid, gt_disparity[i], gt_mask[i], **v['params'])
                             else:
                                 raise ValueError(f'Undefined loss function: {v["function"]}')
                         
