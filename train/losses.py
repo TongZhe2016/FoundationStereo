@@ -33,6 +33,25 @@ def disparity_l1_loss(
         mask: Valid disparity mask [H, W]
         max_disparity: Maximum disparity value for clamping
     """
+    # Handle resolution mismatch by resizing prediction to match ground truth
+    if pred_disparity.shape != gt_disparity.shape:
+        # Ensure pred_disparity has batch and channel dimensions for interpolation
+        if pred_disparity.dim() == 2:
+            pred_disparity = pred_disparity.unsqueeze(0).unsqueeze(0)  # [H, W] -> [1, 1, H, W]
+        elif pred_disparity.dim() == 3:
+            pred_disparity = pred_disparity.unsqueeze(0)  # [C, H, W] -> [1, C, H, W]
+        
+        pred_disparity = F.interpolate(
+            pred_disparity,
+            size=gt_disparity.shape[-2:],
+            mode='bilinear',
+            align_corners=False
+        )
+        
+        # Squeeze back to match gt_disparity dimensions
+        while pred_disparity.dim() > gt_disparity.dim():
+            pred_disparity = pred_disparity.squeeze(0)
+    
     # Clamp predictions to valid range
     pred_disparity = torch.clamp(pred_disparity, 0, max_disparity)
     
@@ -78,6 +97,25 @@ def disparity_smooth_l1_loss(
         beta: Smooth L1 beta parameter
         max_disparity: Maximum disparity value for clamping
     """
+    # Handle resolution mismatch by resizing prediction to match ground truth
+    if pred_disparity.shape != gt_disparity.shape:
+        # Ensure pred_disparity has batch and channel dimensions for interpolation
+        if pred_disparity.dim() == 2:
+            pred_disparity = pred_disparity.unsqueeze(0).unsqueeze(0)  # [H, W] -> [1, 1, H, W]
+        elif pred_disparity.dim() == 3:
+            pred_disparity = pred_disparity.unsqueeze(0)  # [C, H, W] -> [1, C, H, W]
+        
+        pred_disparity = F.interpolate(
+            pred_disparity,
+            size=gt_disparity.shape[-2:],
+            mode='bilinear',
+            align_corners=False
+        )
+        
+        # Squeeze back to match gt_disparity dimensions
+        while pred_disparity.dim() > gt_disparity.dim():
+            pred_disparity = pred_disparity.squeeze(0)
+    
     # Clamp predictions to valid range
     pred_disparity = torch.clamp(pred_disparity, 0, max_disparity)
     
@@ -183,6 +221,10 @@ def multi_scale_loss(
     total_d3_error = 0.0
     
     for i, (pred_disp, weight) in enumerate(zip(pred_disparity_pyramid, weights)):
+        # Ensure pred_disp has the right dimensions
+        while pred_disp.dim() > gt_disparity.dim():
+            pred_disp = pred_disp.squeeze(0)
+        
         # Resize ground truth to match prediction scale
         scale_factor = pred_disp.shape[-1] / gt_disparity.shape[-1]
         if scale_factor != 1.0:

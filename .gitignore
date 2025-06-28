@@ -20,3 +20,4 @@ data/
 erp_output*/
 logs/
 mlruns/
+workspace/

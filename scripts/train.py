@@ -348,6 +348,18 @@ def main(
                             pred_disparity_pyramid = [padder.unpad(disp) for disp in output['flow_predictions']]
                         else:
                             pred_disparity_pyramid = None
+                    elif isinstance(output, (list, tuple)):
+                        # Handle tuple/list output - take the first element as main disparity
+                        pred_disparity = padder.unpad(output[0])
+                        # If there are multiple outputs, treat the rest as pyramid
+                        if len(output) > 1 and isinstance(output[1], (list, tuple)):
+                            # Second element is a list of disparities (pyramid)
+                            pred_disparity_pyramid = [padder.unpad(disp) for disp in output[1]]
+                        elif len(output) > 1:
+                            # Multiple tensor outputs
+                            pred_disparity_pyramid = [padder.unpad(disp) for disp in output[1:] if hasattr(disp, 'ndim')]
+                        else:
+                            pred_disparity_pyramid = None
                     else:
                         # Direct tensor output
                         pred_disparity = padder.unpad(output)
@@ -412,7 +424,8 @@ def main(
 
             # Log metrics
             if i_step == initial_step or i_step % log_every == 0:
-                records = [dict(records)] if records else [{}]
+                # records is already a list of dictionaries, no need to convert
+                records = records if records else [{}]
                 records = accelerator.gather_for_metrics(records, use_gather_object=True)
                 if accelerator.is_main_process:
                     # Average metrics across all records
@@ -421,8 +434,15 @@ def main(
                         for k, v in record.items():
                             if k not in avg_records:
                                 avg_records[k] = []
-                            avg_records[k].append(v)
-                    avg_records = {k: np.mean(v) for k, v in avg_records.items()}
+                            # Convert tensor to scalar if needed
+                            if hasattr(v, 'item'):
+                                avg_records[k].append(v.item())
+                            elif isinstance(v, (int, float)):
+                                avg_records[k].append(v)
+                            else:
+                                # Skip non-numeric values
+                                continue
+                    avg_records = {k: np.mean(v) for k, v in avg_records.items() if len(v) > 0}
                     
                     if enable_mlflow:
                         try:

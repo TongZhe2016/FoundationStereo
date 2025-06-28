@@ -51,7 +51,7 @@
         "function": "multi_scale_loss",
         "weight": 0.3,
         "params": {
-          "weights": [0.5, 0.7, 1.0],
+          "weights": [0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.3, 0.3, 0.5, 1.0],
           "loss_type": "smooth_l1",
           "beta": 1.0,
           "max_disparity": 192.0
